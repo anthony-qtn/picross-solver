@@ -1,5 +1,6 @@
 import tkinter as tk
 import time
+import os
 
 def load_hints(filename):
     with open(filename, "r") as file:
@@ -53,9 +54,9 @@ def draw_nonogram(root, row_hints, col_hints, grid, rows, cols):
     
     root.after(100, animate_fill)
 
-# Chargement des fichiers texte
-hints_filename = "data/cactus.txt"
-grid_filename = "data/cactus_sol.txt"
+script_dir = os.path.dirname(os.path.abspath(__file__))
+hints_filename = os.path.join(script_dir, "..", "data","cactus.txt")
+grid_filename = os.path.join(script_dir, "..", "data","cactus_sol.txt")
 rows, cols, row_hints, col_hints = load_hints(hints_filename)
 grid = load_grid(grid_filename)
 
