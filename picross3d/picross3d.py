@@ -4,17 +4,12 @@ import subprocess
 import numpy as np
 import sys
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
-from config import DATA_DIR
+from config import INPUTS_3D
 
-import os
-import itertools
-import subprocess
-import numpy as np
-from config import DATA_DIR
 
 # Charger un puzzle Picross 3D depuis un fichier
 def load_picross3d(filename):
-    path = os.path.join(DATA_DIR, filename)
+    path = os.path.join(INPUTS_3D, filename)
     with open(path, "r") as file:
         lines = [line.strip() for line in file.readlines()]
 
