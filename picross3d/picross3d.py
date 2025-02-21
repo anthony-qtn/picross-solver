@@ -44,41 +44,77 @@ def load_picross3d(filename):
 def generate_sat_constraints(width, height, depth, sides):
     variables = {}
     clauses = []
-    
+
     # Assigner une variable à chaque voxel (x, y, z)
     var_count = 1
     for x, y, z in itertools.product(range(width), range(height), range(depth)):
         variables[(x, y, z)] = var_count
         var_count += 1
-    
+
     # Contraintes de remplissage
     for side, grid in sides.items():
         dim1, dim2, dim3 = (width, height, depth) if side == 0 else (height, depth, width) if side == 1 else (depth, width, height)
-        
+
         for d1 in range(dim1):
             for d2 in range(dim2):
-                print(f"Side: {side}, d1: {d1}, d2: {d2}, Grid size: {len(grid)}x{len(grid[d1]) if d1 < len(grid) else 'N/A'}")
-                clue = grid[d1][d2]
-                if clue.isdigit():
-                    num_blocks = int(clue)
-                    line_vars = [variables[(d1, d2, d3)] if side == 0 else variables[(d3, d1, d2)] if side == 1 else variables[(d2, d3, d1)] for d3 in range(dim3)]
-                    
-                    # Au moins num_blocks remplis
-                    clauses.append(f"{' '.join(map(str, line_vars))} >= {num_blocks}")
-                    # Au plus num_blocks remplis
-                    clauses.append(f"{' '.join(map(str, line_vars))} <= {num_blocks}")
-    
+                if d1 < len(grid) and d2 < len(grid[d1]):
+                    clue = grid[d1][d2]
+                    if clue.isdigit():
+                        num_blocks = int(clue)
+                        line_vars = [
+                            variables[(d1, d2, d3)] if side == 0 else
+                            variables[(d3, d1, d2)] if side == 1 else
+                            variables[(d2, d3, d1)]
+                            for d3 in range(dim3)
+                        ]
+
+                        # Contraintes CNF : exactement `num_blocks` parmi `line_vars` doivent être vrais
+                        # Clause d'au moins `num_blocks` actifs (sous forme de clauses disjonctives)
+                        for subset in itertools.combinations(line_vars, len(line_vars) - num_blocks + 1):
+                            clause = " ".join(map(str, subset)) + " 0"
+                            if clause not in clauses:  # Éviter les répétitions
+                                clauses.append(clause)
+
+                        # Clause d'au plus `num_blocks` actifs (négation en paires)
+                        for subset in itertools.combinations(line_vars, num_blocks + 1):
+                            clause = " ".join(f"-{var}" for var in subset) + " 0"
+                            if clause not in clauses:  # Éviter les répétitions
+                                clauses.append(clause)
+
+                        # Debug: Imprimer les contraintes générées pour chaque ligne
+                        print(f"Side {side}, Line ({d1}, {d2}), Clue {clue}:")
+                        print(f"  At least {num_blocks}: {[subset for subset in itertools.combinations(line_vars, len(line_vars) - num_blocks + 1)]}")
+                        print(f"  At most {num_blocks}: {[subset for subset in itertools.combinations(line_vars, num_blocks + 1)]}")
+
     return variables, clauses
+
+
+
 
 # Résoudre le SAT avec Gophersat
 def solve_sat(clauses):
-    cnf = f"p cnf {len(clauses)} {len(clauses)}\n" + "\n".join(clauses)
+    num_vars = max(max(map(abs, map(int, clause.split()))) for clause in clauses) if clauses else 0
+    cnf = f"p cnf {num_vars} {len(clauses)}\n" + "\n".join(clauses)
+
     with open("temp.cnf", "w") as file:
-        file.write(cnf)
-    
+        file.write(cnf+"\n")
+
+    print("\n===== CNF GENERATED =====")
+    with open("temp.cnf", "r") as file:
+        print(file.read())  # Debug: voir le contenu du fichier CNF
+
     result = subprocess.run(["gophersat", "temp.cnf"], capture_output=True, text=True)
-    os.remove("temp.cnf")
+
+    if result.returncode == 0:
+        print("\n===== GOPHERSAT OUTPUT =====")
+        print(result.stdout)  # Afficher la sortie de Gophersat
+    else:
+        print("\n===== GOPHERSAT ERROR =====")
+        print(result.stderr)  # Afficher l'erreur de Gophersat
+
     return result.stdout
+
+
 
 # Charger un puzzle et résoudre
 if __name__ == "__main__":
@@ -92,4 +128,3 @@ if __name__ == "__main__":
     print(sides[2])
     variables, clauses = generate_sat_constraints(width, height, depth, sides)
     solution = solve_sat(clauses)
-    print(solution)
