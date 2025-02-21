@@ -215,9 +215,9 @@ if __name__ == "__main__":
     script_dir = os.path.dirname(os.path.abspath(__file__))
 
     # load input
-    input_filename = "horse.txt"
+    input_filename = "lambda.txt"
 
-    hints_filename = os.path.join(script_dir, "..", DATA_DIR,INPUTS_2D,input_filename)
+    hints_filename = os.path.join(script_dir, "..",INPUTS_2D,input_filename)
     rows, cols, row_hints, col_hints = load_hints(hints_filename)
     output_filename = input_filename.replace(".txt", "_solution.txt")
     solve_picross2d(rows, cols, row_hints, col_hints, output_filename)
