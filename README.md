@@ -1,5 +1,7 @@
 # Projet CR : Solveur de Picross
 
+lien : https://github.com/anthony-qtn/picross-solver.git
+
 ## Présentation du Projet
 
 Ce projet explore l’application des solveurs SAT et des problèmes de satisfaction de contraintes (CSP) pour résoudre des puzzles logiques, en particulier les **nonogrammes** (également appelés Picross ou Hanjie). L’objectif est de développer un **solveur automatisé** capable de déterminer si un nonogramme donné (2D et 3D) a une solution et, le cas échéant, de trouver cette solution efficacement.
