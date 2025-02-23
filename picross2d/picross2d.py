@@ -8,6 +8,7 @@ from constraint import Problem, ExactSumConstraint
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 from config import DATA_DIR
 from config import INPUTS_2D
+import argparse
 
 
 def load_hints(filename):
@@ -18,15 +19,16 @@ def load_hints(filename):
     cols = int(lines[1])
     row_hints = lines[2:2+rows]
     col_hints = lines[2+rows:2+rows+cols]
-    
     return rows, cols, row_hints, col_hints
 
 def load_grid(filename):
     with open(filename, "r") as file:
         return [list(line.strip()) for line in file.readlines()]
 
-def draw_nonogram(root, row_hints, col_hints, grid, rows, cols):
-    cell_size = 15  # Taille des cases
+def draw_nonogram(root, grid_filename: str, hints_filename: str):
+    grid = load_grid(grid_filename)
+    rows, cols, row_hints, col_hints = load_hints(hints_filename)
+    cell_size = 18  # Taille des cases
     offset_x = 50  # Décalage pour la grille
     offset_y = 50  # Décalage pour la grille
     
@@ -45,8 +47,16 @@ def draw_nonogram(root, row_hints, col_hints, grid, rows, cols):
     
     # Afficher les indices des colonnes en bas
     for j, hint in enumerate(col_hints):
-        canvas.create_text(offset_x + j * cell_size + cell_size // 2, offset_y + rows * cell_size + 10, text=hint, anchor='n', font=('Arial', 6))
-    
+        hint_numbers = hint.split()  # Séparer les nombres
+        for k, number in enumerate(hint_numbers):
+            canvas.create_text(
+                offset_x + j * cell_size + cell_size // 2, 
+                offset_y + rows * cell_size + 10 + k * 8,  # Décalage progressif vers le bas
+                text=number, 
+                anchor='n', 
+                font=('Arial', 6)
+            )
+
     # Fonction pour colorier progressivement les cases
     def animate_fill():
         for i in range(rows):
@@ -71,29 +81,33 @@ def aux_var(counter: List[int]) -> int:
     return counter[0]
 
 def get_intervals(Nb: int, Max: int) -> List[List[int]]:
-    all_keys = "abcdefghijklmnopqrstuvwxyz"
-    min_vals = [i for i in range(Max+1)]
-    max_vals = [i for i in range(1, Max+1)]
+    min_vals = list(range(Max + 1))   # Valeurs possibles pour la première et la dernière variable
+    max_vals = list(range(1, Max + 1)) # Valeurs possibles pour les autres variables
     
     problem = Problem()
-    problem.addVariable("a", min_vals)
+    # Générer des noms de variables dynamiquement
+    variable_names = [f"var_{i}" for i in range(Nb + 1)]
     
+    # Ajouter la première variable (peut être entre 0 et Max)
+    problem.addVariable(variable_names[0], min_vals)
+    
+    # Ajouter les variables intermédiaires (entre 1 et Max)
     for i in range(1, Nb):
-        problem.addVariable(all_keys[i], max_vals)
+        problem.addVariable(variable_names[i], max_vals)
     
-    problem.addVariable(all_keys[Nb], min_vals)
+    # Ajouter la dernière variable (peut être entre 0 et Max)
+    problem.addVariable(variable_names[Nb], min_vals)
+    
+    # Ajouter la contrainte de somme exacte
     problem.addConstraint(ExactSumConstraint(Max))
     
+    # Récupérer les solutions
     Res = problem.getSolutions()
     Resultat = []
     
+    # Reformater les résultats en liste de listes
     for r in Res:
-        item = []
-        keys = list(r.keys())
-        for i in range(Nb+1):
-            for u in keys:
-                if all_keys[i] == u:
-                    item.append(r[u])
+        item = [r[var] for var in variable_names]
         Resultat.append(item)
     
     return Resultat
@@ -156,11 +170,9 @@ def encode_col_constraints(rows: int, cols: int, col_hints: List[str], clauses: 
                 pos += 1
         clauses.append(conditions)
 
-def solve_picross2d(rows: int, cols: int, row_hints: List[str], col_hints: List[str], output_filename: str) -> None:
+def solve_picross2d(hints_filename: str, output_filename: str) -> None:
+    rows, cols, row_hints, col_hints = load_hints(hints_filename)
     cnf_filename = "temp.cnf"
-    # add output filename
-    output_filename = os.path.join("output",output_filename)
-    os.makedirs("output", exist_ok=True)
     
     clauses: List[List[int]] = []
     aux_counter = [rows * cols]  # Start auxiliary variables after grid variables
@@ -209,22 +221,23 @@ def solve_picross2d(rows: int, cols: int, row_hints: List[str], col_hints: List[
         for row in solution_grid:
             print("".join(row))
 
+def main():
+    parser = argparse.ArgumentParser(description="Solve a Picross 2D puzzle and visualize the result.")
+    parser.add_argument("--input_filename", type=str, required=True, help="Name of the input file (e.g., cactus.txt)")
 
-
-if __name__ == "__main__":
+    args = parser.parse_args()
+    input_filename = args.input_filename
     script_dir = os.path.dirname(os.path.abspath(__file__))
 
-    # load input
-    input_filename = "lambda.txt"
-
     hints_filename = os.path.join(script_dir, "..",INPUTS_2D,input_filename)
-    rows, cols, row_hints, col_hints = load_hints(hints_filename)
-    output_filename = input_filename.replace(".txt", "_solution.txt")
-    solve_picross2d(rows, cols, row_hints, col_hints, output_filename)
-    grid_filename = os.path.join(script_dir, "output",output_filename)
-    grid = load_grid(grid_filename)
+    output_filename = os.path.join(script_dir, "..","data","outputs-2D", input_filename.replace(".txt", "_solution.txt"))
+
+    solve_picross2d(hints_filename, output_filename)
     # Création de la fenêtre Tkinter
     root = tk.Tk()
     root.title("Nonogram")
-    draw_nonogram(root, row_hints, col_hints, grid, rows, cols)
+    draw_nonogram(root, output_filename, hints_filename)
     root.mainloop()
+
+if __name__ == "__main__":
+    main()
