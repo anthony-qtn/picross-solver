@@ -1,0 +1,7 @@
+tkinter
+pyvista
+numpy
+constraint
+argparse
+subprocess
+itertools
