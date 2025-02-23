@@ -1,125 +1,240 @@
-import os
 import itertools
 import subprocess
 import numpy as np
+import os
+import vpython as v
 import sys
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
-from config import INPUTS_3D
+import pyvista as pv
+import numpy as np
+
+INPUTS_3D = os.path.join("data", "inputs-3D")
 
 
-# Charger un puzzle Picross 3D depuis un fichier
-def load_picross3d(filename):
-    path = os.path.join(INPUTS_3D, filename)
-    with open(path, "r") as file:
-        lines = [line.strip() for line in file.readlines()]
 
-    width, height, depth = map(int, lines[0].split())
-    sides = {0: [], 1: [], 2: []}
+class Picross3D:
+    def __init__(self, filename):
+        """ Constructeur : Charge un puzzle depuis un fichier """
+        self.width, self.height, self.depth, self.sides = self.load_picross3d(filename)
+        self.variables = {}
+        self.clauses = []
+        self.solution = None
+        self.numLiterals = 1  # Pour commencer à générer les variables
+        self.indices = self.init_indices()  # Initialisation des indices
+        self.generate_constraints()  # Génération des contraintes
 
-    index = 1
-    expected_lines = {0: height, 1: depth, 2: width}  # Nombre de lignes attendues par face
+    def load_picross3d(self, filename):
+        """ Charge un puzzle Picross 3D depuis un fichier """
+        path = os.path.join(INPUTS_3D, filename)
+        with open(path, "r") as file:
+            lines = [line.strip() for line in file.readlines()]
 
-    # saut de ligne
-    while index < len(lines) and not lines[index]:
-        index+=1
+        width, height, depth = map(int, lines[0].split())
+        sides = {0: [], 1: [], 2: []}
 
-    for side in range(3):
-        sides[side] = []
-        for _ in range(expected_lines[side]):
-            if index < len(lines) and lines[index]:  # Vérifie qu'on ne dépasse pas
-                sides[side].append(lines[index].split())
-                index += 1
-        while index < len(lines) and not lines[index]:  # Sauter les lignes vides
+        index = 1
+        expected_lines = {0: height, 1: depth, 2: width}
+
+        while index < len(lines) and not lines[index]:
             index += 1
 
-    return width, height, depth, sides
+        for side in range(3):
+            sides[side] = []
+            for _ in range(expected_lines[side]):
+                if index < len(lines) and lines[index]:
+                    sides[side].append(lines[index].split())
+                    index += 1
+            while index < len(lines) and not lines[index]:
+                index += 1
+
+        return width, height, depth, sides
+
+    def init_indices(self):
+        """ Initialise les indices des variables SAT pour chaque bloc du puzzle """
+        indices = {}
+        for x in range(self.width):
+            for y in range(self.height):
+                for z in range(self.depth):
+                    indices[(x, y, z)] = self.numLiterals
+                    self.variables[(x, y, z)] = self.numLiterals  # Track the variable
+                    self.numLiterals += 1
+        return indices
 
 
-# Générer les contraintes SAT
-def generate_sat_constraints(width, height, depth, sides):
-    variables = {}
-    clauses = []
+    def generate_constraints(self):
+        """ Génère les contraintes SAT pour chaque face du puzzle """
+        for sideIndex in range(len(self.sides)):
+            side = self.sides[sideIndex]
+            for rowIndex in range(len(side)):
+                row = side[rowIndex]
+                for colIndex in range(len(row)):
+                    col = row[colIndex]
+                    if col != '-':
+                        stack = self.get_stack_of_blocks(sideIndex, rowIndex, colIndex)
+                        if col[0] == '(':
+                            sideNum = int(col[1])
+                            self.clauses.extend(self.PLSentencesCircleStack(stack, sideNum))
+                        elif col[0] == '[':
+                            sideNum = int(col[1])
+                            self.clauses.extend(self.PLSentencesSquareStack(stack, sideNum))
+                        else:
+                            sideNum = int(col)
+                            self.clauses.extend(self.PLSentencesPlainStack(stack, sideNum))
 
-    # Assigner une variable à chaque voxel (x, y, z)
-    var_count = 1
-    for x, y, z in itertools.product(range(width), range(height), range(depth)):
-        variables[(x, y, z)] = var_count
-        var_count += 1
+    def get_stack_of_blocks(self, sideIndex, rowIndex, colIndex):
+        """ Retourne la liste des blocs dans une pile donnée par les indices du puzzle """
+        stack = []
+        if sideIndex == 0:
+            y = rowIndex
+            z = colIndex
+            for x in range(self.width):
+                stack.append(self.indices[(x, y, z)])
+        elif sideIndex == 1:
+            x = self.width - rowIndex - 1
+            z = colIndex
+            for y in range(self.height):
+                stack.append(self.indices[(x, y, z)])
+        elif sideIndex == 2:
+            x = self.width - colIndex - 1
+            y = rowIndex
+            for z in range(self.depth):
+                stack.append(self.indices[(x, y, z)])
+        return stack
 
-    # Contraintes de remplissage
-    for side, grid in sides.items():
-        dim1, dim2, dim3 = (width, height, depth) if side == 0 else (height, depth, width) if side == 1 else (depth, width, height)
+    def PLSentencesPlainStack(self, stack, sideNum):
+        """ Construit les clauses CNF pour une pile de blocs (plain number) """
+        sentences = []
+        if sideNum == 0:
+            # Pas de bloc dans cette pile
+            for block in stack:
+                sentences.append([-block])  # Le bloc n'est pas dans la solution
+        elif sideNum == len(stack):
+            # Tous les blocs dans cette pile doivent être dans la solution
+            for block in stack:
+                sentences.append([block])  # Le bloc est dans la solution
+        else:
+            # Constructeur pour exactement "sideNum" blocs dans cette pile
+            combos = list(itertools.combinations(stack, len(stack) - sideNum + 1))
+            for combo in combos:
+                sentences.append(list(combo))
 
-        for d1 in range(dim1):
-            for d2 in range(dim2):
-                if d1 < len(grid) and d2 < len(grid[d1]):
-                    clue = grid[d1][d2]
-                    if clue.isdigit():
-                        num_blocks = int(clue)
-                        line_vars = [
-                            variables[(d1, d2, d3)] if side == 0 else
-                            variables[(d3, d1, d2)] if side == 1 else
-                            variables[(d2, d3, d1)]
-                            for d3 in range(dim3)
-                        ]
+            combos = list(itertools.combinations(stack, sideNum + 1))
+            for c in combos:
+                combo = list(c)
+                for i in range(len(combo)):
+                    combo[i] *= -1
+                sentences.append(combo)
 
-                        # Contraintes CNF : exactement `num_blocks` parmi `line_vars` doivent être vrais
-                        # Clause d'au moins `num_blocks` actifs (sous forme de clauses disjonctives)
-                        for subset in itertools.combinations(line_vars, len(line_vars) - num_blocks + 1):
-                            clause = " ".join(map(str, subset)) + " 0"
-                            if clause not in clauses:  # Éviter les répétitions
-                                clauses.append(clause)
+            # Les blocs doivent apparaître dans une ligne continue
+            for start in range(len(stack)):
+                for nextBlock in range(start + sideNum, len(stack)):
+                    sentences.append([stack[start] * -1, stack[nextBlock] * -1])
 
-                        # Clause d'au plus `num_blocks` actifs (négation en paires)
-                        for subset in itertools.combinations(line_vars, num_blocks + 1):
-                            clause = " ".join(f"-{var}" for var in subset) + " 0"
-                            if clause not in clauses:  # Éviter les répétitions
-                                clauses.append(clause)
+        return sentences
 
-                        # Debug: Imprimer les contraintes générées pour chaque ligne
-                        print(f"Side {side}, Line ({d1}, {d2}), Clue {clue}:")
-                        print(f"  At least {num_blocks}: {[subset for subset in itertools.combinations(line_vars, len(line_vars) - num_blocks + 1)]}")
-                        print(f"  At most {num_blocks}: {[subset for subset in itertools.combinations(line_vars, num_blocks + 1)]}")
+    def PLSentencesCircleStack(self, stack, sideNum):
+        """ Placeholder pour les cercles, non implémenté """
+        sys.exit("Erreur : les cercles ne sont pas encore implémentés.")
 
-    return variables, clauses
+    def PLSentencesSquareStack(self, stack, sideNum):
+        """ Placeholder pour les carrés, non implémenté """
+        sys.exit("Erreur : les carrés ne sont pas encore implémentés.")
+
+    def solve(self):
+        """ Résout le puzzle avec Gophersat """
+        cnf = f"p cnf {self.numLiterals - 1} {len(self.clauses)}\n" + "\n".join(" ".join(map(str, clause)) + " 0" for clause in self.clauses)
+
+        with open("temp.cnf", "w") as file:
+            file.write(cnf + "\n")
+
+        result = subprocess.run(["gophersat", "temp.cnf"], capture_output=True, text=True)
+
+        if result.returncode == 0:
+            print("Gophersat a résolu le puzzle avec succès")
+            return result.stdout
+        else:
+            print("Erreur avec Gophersat", result.stderr)
+            return None
+
+    def print_solution(self, solution):
+        """ Affiche la solution du puzzle """
+        # Split solution into lines and filter out the non-solution part
+        solution_lines = solution.splitlines()
+        
+        # Find the line with 'v ' and process the literals
+        solution_values = []
+        for line in solution_lines:
+            if line.startswith('v '):
+                solution_values = line.split()[1:]  # Skip 'v' and take the literals
+        
+        # Ensure solution_values is not empty
+        if not solution_values:
+            print("No solution found.")
+            return
+
+        # Convert solution literals to integers
+        satisfied_vars = set(map(int, solution_values))
+        
+        for x in range(self.width):
+            for y in range(self.height):
+                for z in range(self.depth):
+                    var_index = self.variables[(x, y, z)]  # Get the literal for this (x, y, z)
+                    if var_index > 0:
+                        print('1' if var_index in satisfied_vars else '0', end=' ')  # Positive literal means "1"
+                    else:
+                        print('0' if var_index in satisfied_vars else '1', end=' ')  # Negative literal means "0"
+                print()
+            print()
+
+
+
+    def visualize_solution(self, solution):
+        """ Affiche la solution du puzzle en 3D avec un mini-repère en haut à droite """
+
+        # Extraire les valeurs de la solution SAT
+        solution_lines = solution.splitlines()
+        solution_values = []
+
+        for line in solution_lines:
+            if line.startswith('v '):
+                solution_values = line.split()[1:]  # On saute le 'v' et on garde les littéraux
+
+        if not solution_values:
+            print("Aucune solution trouvée pour la visualisation.")
+            return
+
+        satisfied_vars = set(map(int, solution_values))  # Convertir en ensemble pour recherche rapide
+
+        # Création du plot interactif
+        plotter = pv.Plotter()
+
+        # Ajout des cubes (blocs actifs en vert, inactifs en gris semi-transparent)
+        for x in range(self.width):
+            for y in range(self.height):
+                for z in range(self.depth):
+                    var_index = self.variables[(x, y, z)]  # Récupérer l'index SAT
+                    
+                    if var_index in satisfied_vars:
+                        color = "green"  # Bloc actif
+                        opacity = 1.0  # Opaque
+                    else:
+                        color = "gray"  # Bloc supprimé
+                        opacity = 0.1  # Semi-transparent
+                    
+                    cube = pv.Cube(center=(x, y, z), x_length=1, y_length=1, z_length=1)
+                    plotter.add_mesh(cube, color=color, opacity=opacity, show_edges=True)
+
+        # Ajout du mini-repère 3D en haut à droite
+        plotter.add_axes(interactive=True)  # Affiche un petit repère qui tourne avec la figure
+
+        # Affichage interactif (rotation, zoom, etc.)
+        plotter.show()
 
 
 
 
-# Résoudre le SAT avec Gophersat
-def solve_sat(clauses):
-    num_vars = max(max(map(abs, map(int, clause.split()))) for clause in clauses) if clauses else 0
-    cnf = f"p cnf {num_vars} {len(clauses)}\n" + "\n".join(clauses)
-
-    with open("temp.cnf", "w") as file:
-        file.write(cnf+"\n")
-
-    print("\n===== CNF GENERATED =====")
-    with open("temp.cnf", "r") as file:
-        print(file.read())  # Debug: voir le contenu du fichier CNF
-
-    result = subprocess.run(["gophersat", "temp.cnf"], capture_output=True, text=True)
-
-    if result.returncode == 0:
-        print("\n===== GOPHERSAT OUTPUT =====")
-        print(result.stdout)  # Afficher la sortie de Gophersat
-    else:
-        print("\n===== GOPHERSAT ERROR =====")
-        print(result.stderr)  # Afficher l'erreur de Gophersat
-
-    return result.stdout
-
-
-
-# Charger un puzzle et résoudre
 if __name__ == "__main__":
-    width, height, depth, sides = load_picross3d("LittlePuzzle.txt")
-    print(width, height, depth)
-    print("side 0:")
-    print(sides[0])
-    print("side 1:")
-    print(sides[1])
-    print("side 2:")
-    print(sides[2])
-    variables, clauses = generate_sat_constraints(width, height, depth, sides)
-    solution = solve_sat(clauses)
+    puzzle = Picross3D("Pyramid.txt")
+    solution = puzzle.solve()
+    if solution:
+        puzzle.print_solution(solution)
+        puzzle.visualize_solution(solution)
