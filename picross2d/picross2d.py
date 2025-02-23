@@ -68,7 +68,7 @@ def draw_nonogram(root, grid_filename: str, hints_filename: str):
                         fill='black'
                     )
                     root.update()
-                    time.sleep(0.001)
+                    time.sleep(0.005)
     
     root.after(100, animate_fill)
 
