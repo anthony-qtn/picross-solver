@@ -4,6 +4,7 @@ import os
 import sys
 import pyvista as pv
 import numpy as np
+import argparse
 
 INPUTS_3D = os.path.join("data", "inputs-3D")
 
@@ -70,13 +71,13 @@ class Picross3D:
                         stack = self.get_stack_of_blocks(sideIndex, rowIndex, colIndex)
                         if col[0] == '(':
                             sideNum = int(col[1])
-                            self.clauses.extend(self.PLSentencesCircleStack(stack, sideNum))
+                            self.clauses.extend(self.CircleStackCondition(stack, sideNum))
                         elif col[0] == '[':
                             sideNum = int(col[1])
-                            self.clauses.extend(self.PLSentencesSquareStack(stack, sideNum))
+                            self.clauses.extend(self.SquareStackCondition(stack, sideNum))
                         else:
                             sideNum = int(col)
-                            self.clauses.extend(self.PLSentencesPlainStack(stack, sideNum))
+                            self.clauses.extend(self.PlainStackCondition(stack, sideNum))
 
     def get_stack_of_blocks(self, sideIndex, rowIndex, colIndex):
         """ Retourne la liste des blocs dans une pile donnée par les indices du puzzle """
@@ -98,7 +99,7 @@ class Picross3D:
                 stack.append(self.indices[(x, y, z)])
         return stack
 
-    def PLSentencesPlainStack(self, stack, sideNum):
+    def PlainStackCondition(self, stack, sideNum):
         """ Construit les clauses CNF pour une pile de blocs (plain number) """
         sentences = []
         if sideNum == 0:
@@ -132,7 +133,7 @@ class Picross3D:
 
 
 
-    def PLSentencesCircleStack(self, stack, sideNum):
+    def CircleStackCondition(self, stack, sideNum):
         """Construit les clauses CNF pour une pile avec un nombre exact de 2 groupes de blocs séparés par au moins un bloc vide.
         Example: stack de 4 blocs, sideNum = 2
         Les sols possibles sont:
@@ -165,13 +166,14 @@ class Picross3D:
                     group1 = stack[start:start + sideNum]
                     group2 = stack[end:end + sideNum]
                     sentences.append([group1[0] * -1, group2[0] * -1])
-
+        print(sentences)
         return sentences
-    
-    def PLSentencesSquareStack(self, stack, sideNum):
+
+
+    def SquareStackCondition(self, stack, sideNum):
         """
         Construit les clauses CNF pour une pile avec un nombre de 3+ groupes de blocs séparés par au moins un bloc vide.
-        La difficulté ici est que l'on ne connait pas le nombre de groupes à l'avance. Pour cela on limite le nombre de groupes à la longueur de la pile - 2 (puisque au moins 2 blocs vides sont nécessaires pour séparer les groupes).
+        La difficulté ici est que l'on ne connait pas le nombre de groupes à l'avance. Pour cela on limite le nombre de groupes à la longueur de la ligne - 2 (puisque au moins 2 blocs vides sont nécessaires pour séparer les groupes).
         Exemple: stack de 6 blocs, sideNum = 3
         Les solutions possibles sont:
         - 1 0 1 0 1 0
@@ -180,35 +182,44 @@ class Picross3D:
         - 1 0 1 0 0 1
         - 0 1 0 1 0 1
         """
+        
         sentences = []
+        
         if sideNum == 0:
             # Pas de bloc dans cette pile
             for block in stack:
                 sentences.append([-block])
-        elif sideNum == len(stack):
-            # Tous les blocs dans cette pile doivent être dans la solution
-            for block in stack:
-                sentences.append([block])
         else:
-            # Construire les groupes de blocs
-            for numGroups in range(3, 5):
-                for groupIndices in itertools.combinations(range(len(stack)), numGroups * sideNum):
-                    groupIndices = list(groupIndices)
-                    groups = [stack[i:i + sideNum] for i in groupIndices]
-                    if all(len(group) == sideNum for group in groups):
-                        for group in groups:
-                            sentences.append(group)
-                    else:
-                        continue
-                    # Les groupes doivent être séparés par au moins un bloc vide
-                    for i in range(len(groups) - 1):
-                        group1 = groups[i]
-                        group2 = groups[i + 1]
-                        sentences.append([group1[-1] * -1, group2[0] * -1])
-
+            # On génère toutes les combinaisons possibles de sideNum blocs parmi les n blocs de la pile
+            combos = list(itertools.combinations(stack, sideNum))
+            for combo in combos:
+                if self.has_at_least_three_groups(combo):
+                    # Convertir la combinaison en une liste de clauses CNF
+                    sentences.append(list(combo))
+        print(sentences)
         return sentences
+
+
+    def has_at_least_three_groups(self, combo):
+        """
+        Vérifie si une combinaison de blocs a au moins 3 groupes séparés par au moins un bloc vide.
+        """
+        group_counter = 0
+        prev_block = -1
+        
+        # On parcourt la combinaison pour compter les groupes
+        for index in range(len(combo)):
+            if combo[index] > prev_block + 1:
+                group_counter += 1  # Détecter un nouveau groupe
+            prev_block = combo[index]
+        
+        return group_counter >= 3
+
+    
+    
     
 
+    
     def solve(self):
         """ Résout le puzzle avec Gophersat """
         cnf = f"p cnf {self.numLiterals - 1} {len(self.clauses)}\n" + "\n".join(" ".join(map(str, clause)) + " 0" for clause in self.clauses)
@@ -303,8 +314,24 @@ class Picross3D:
 
 
 if __name__ == "__main__":
-    puzzle = Picross3D("SquaredPuzzle_big.txt")
+    # Créer un parseur d'arguments
+    parser = argparse.ArgumentParser(description="Résoudre un puzzle Picross 3D")
+    
+    # Ajouter un argument pour le nom du fichier du puzzle
+    parser.add_argument("puzzle_file", type=str, help="Nom du fichier du puzzle à résoudre")
+    
+    # Analyser les arguments passés en ligne de commande
+    args = parser.parse_args()
+    
+    # Créer une instance de Picross3D en utilisant le fichier spécifié en argument
+    puzzle = Picross3D(args.puzzle_file)
+    
+    # Résoudre le puzzle
     solution = puzzle.solve()
+    
+    # Si une solution est trouvée, l'afficher et la visualiser
     if solution:
         puzzle.print_solution(solution)
         puzzle.visualize_solution(solution)
+    else:
+        print("Aucune solution trouvée pour ce puzzle.")

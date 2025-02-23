@@ -1,3 +1,5 @@
+"""Module de visualisation de la solution d'un picross 3D avec vpython et imgui"""
+"""NB: Non utilisé dans le projet final"""
 
 import glfw
 from OpenGL.GL import *
