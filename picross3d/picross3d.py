@@ -1,8 +1,6 @@
 import itertools
 import subprocess
-import numpy as np
 import os
-import vpython as v
 import sys
 import pyvista as pv
 import numpy as np
@@ -131,13 +129,85 @@ class Picross3D:
 
         return sentences
 
-    def PLSentencesCircleStack(self, stack, sideNum):
-        """ Placeholder pour les cercles, non implémenté """
-        sys.exit("Erreur : les cercles ne sont pas encore implémentés.")
 
+
+
+    def PLSentencesCircleStack(self, stack, sideNum):
+        """Construit les clauses CNF pour une pile avec un nombre exact de 2 groupes de blocs séparés par au moins un bloc vide.
+        Example: stack de 4 blocs, sideNum = 2
+        Les sols possibles sont:
+        - 1 0 1 0
+        - 0 1 0 1
+        - 1 0 0 1
+        (il faut au moins un bloc vide entre les 2 groupes continus de blocs)
+
+
+        """
+        sentences = []
+        if sideNum == 0:
+            # Pas de bloc dans cette pile
+            for block in stack:
+                sentences.append([-block])
+        elif sideNum == len(stack):
+            # Tous les blocs dans cette pile doivent être dans la solution
+            for block in stack:
+                sentences.append([block])
+        else:
+            # Construire les groupes de blocs
+            for start in range(len(stack) - sideNum + 1):
+                for end in range(start + sideNum, len(stack) + 1):
+                    group = stack[start:end]
+                    if len(group) == sideNum:
+                        sentences.append(group)
+            # Les groupes doivent être séparés par au moins un bloc vide
+            for start in range(len(stack) - sideNum):
+                for end in range(start + sideNum + 1, len(stack)):
+                    group1 = stack[start:start + sideNum]
+                    group2 = stack[end:end + sideNum]
+                    sentences.append([group1[0] * -1, group2[0] * -1])
+
+        return sentences
+    
     def PLSentencesSquareStack(self, stack, sideNum):
-        """ Placeholder pour les carrés, non implémenté """
-        sys.exit("Erreur : les carrés ne sont pas encore implémentés.")
+        """
+        Construit les clauses CNF pour une pile avec un nombre de 3+ groupes de blocs séparés par au moins un bloc vide.
+        La difficulté ici est que l'on ne connait pas le nombre de groupes à l'avance. Pour cela on limite le nombre de groupes à la longueur de la pile - 2 (puisque au moins 2 blocs vides sont nécessaires pour séparer les groupes).
+        Exemple: stack de 6 blocs, sideNum = 3
+        Les solutions possibles sont:
+        - 1 0 1 0 1 0
+        - 0 1 0 1 0 1
+        - 1 0 0 1 0 1
+        - 1 0 1 0 0 1
+        - 0 1 0 1 0 1
+        """
+        sentences = []
+        if sideNum == 0:
+            # Pas de bloc dans cette pile
+            for block in stack:
+                sentences.append([-block])
+        elif sideNum == len(stack):
+            # Tous les blocs dans cette pile doivent être dans la solution
+            for block in stack:
+                sentences.append([block])
+        else:
+            # Construire les groupes de blocs
+            for numGroups in range(3, 5):
+                for groupIndices in itertools.combinations(range(len(stack)), numGroups * sideNum):
+                    groupIndices = list(groupIndices)
+                    groups = [stack[i:i + sideNum] for i in groupIndices]
+                    if all(len(group) == sideNum for group in groups):
+                        for group in groups:
+                            sentences.append(group)
+                    else:
+                        continue
+                    # Les groupes doivent être séparés par au moins un bloc vide
+                    for i in range(len(groups) - 1):
+                        group1 = groups[i]
+                        group2 = groups[i + 1]
+                        sentences.append([group1[-1] * -1, group2[0] * -1])
+
+        return sentences
+    
 
     def solve(self):
         """ Résout le puzzle avec Gophersat """
@@ -233,7 +303,7 @@ class Picross3D:
 
 
 if __name__ == "__main__":
-    puzzle = Picross3D("Pyramid.txt")
+    puzzle = Picross3D("SquaredPuzzle_big.txt")
     solution = puzzle.solve()
     if solution:
         puzzle.print_solution(solution)
